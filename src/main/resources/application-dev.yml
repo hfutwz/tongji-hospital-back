@@ -1,0 +1,48 @@
+# ============================================
+# 本地开发环境配置 (application-dev.yml)
+# ============================================
+# 使用场景：本地Windows开发环境
+# 激活方式：spring.profiles.active=dev
+
+# ============================================
+# 数据库配置（本地MySQL）
+# ============================================
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/healthineersvisualization?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&autoReconnect=true&failOverReadOnly=false&maxReconnects=10&useOldAliasMetadataBehavior=true
+    username: root
+    password: 123
+    driver-class-name: com.mysql.jdbc.Driver
+
+# ============================================
+# 日志配置（开发环境使用DEBUG级别）
+# ============================================
+logging:
+  level:
+    com.demo: debug
+    root: info
+  file:
+    name: logs/healthineers-dev.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+
+# ============================================
+# 文件上传配置（本地开发环境）
+# ============================================
+file:
+  upload-dir: uploads/
+  # 文件存储的绝对路径（可选，如果为空则使用相对路径）
+  upload-absolute-path: F:/Healthineers-visualization/back-end/healthineers-visualization/uploads
+
+# ============================================
+# CORS跨域配置（本地开发环境）
+# ============================================
+cors:
+  allowed-origins:
+    - http://localhost:8001
+    - https://localhost:8001
+    - http://127.0.0.1:8001
+    - http://localhost:8080
+    - http://127.0.0.1:8080
+

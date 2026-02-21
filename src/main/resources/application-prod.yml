@@ -1,0 +1,79 @@
+# ============================================
+# 生产环境配置 (application-prod.yml)
+# ============================================
+# 使用场景：Linux服务器生产环境（111.229.45.33）
+# 激活方式：spring.profiles.active=prod
+# 启动命令：java -jar healthineers-visualization.jar --spring.profiles.active=prod
+
+# ============================================
+# 数据库配置（生产环境MySQL）
+# ============================================
+spring:
+  datasource:
+    # 生产环境数据库连接（请根据实际服务器配置修改）
+    url: jdbc:mysql://localhost:13307/healthineersvisualization?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&autoReconnect=true&failOverReadOnly=false&maxReconnects=10&useOldAliasMetadataBehavior=true
+    username: root
+    password: wzProJe@@cT!Dro#dSSaPIfU73==39@
+    driver-class-name: com.mysql.jdbc.Driver
+    # 生产环境数据库连接池配置
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+# ============================================
+# 日志配置（生产环境使用INFO级别）
+# ============================================
+logging:
+  level:
+    com.demo: info
+    root: warn
+  file:
+    name: /www/server/healthineers/logs/healthineers-prod.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{50} - %msg%n"
+  # 日志文件大小和保留策略
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30
+      total-size-cap: 1GB
+
+# ============================================
+# 文件上传配置（生产环境）
+# ============================================
+file:
+  upload-dir: uploads/
+  # 文件存储的绝对路径（生产环境）
+  upload-absolute-path: /www/server/healthineers/back-end/healthineers-visualization/uploads
+
+# ============================================
+# CORS跨域配置（生产环境）
+# ============================================
+cors:
+  allowed-origins:
+    - http://111.229.45.33
+    - https://111.229.45.33
+    - http://111.229.45.33:8001
+    - https://111.229.45.33:8001
+    # 如果需要支持其他域名，添加以下配置
+
+
+# ============================================
+# 服务器配置（生产环境）
+# ============================================
+server:
+  # 生产环境可以保持9090端口，或根据实际需求修改
+  port: 9090
+  # 生产环境建议关闭服务器信息暴露
+  error:
+    include-stacktrace: never
+    include-message: never
+  # 生产环境建议启用压缩
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/xml,text/plain
+

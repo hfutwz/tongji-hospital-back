@@ -12,7 +12,7 @@ spring:
   datasource:
     # 生产环境数据库连接（请根据实际服务器配置修改）
     url: jdbc:mysql://localhost:13307/healthineersvisualization?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&autoReconnect=true&failOverReadOnly=false&maxReconnects=10&useOldAliasMetadataBehavior=true
-    username: root
+    username: root1
     password: wzProJe@@cT!Dro#dSSaPIfU73==39@
     driver-class-name: com.mysql.jdbc.Driver
     # 生产环境数据库连接池配置
@@ -55,10 +55,10 @@ file:
 # ============================================
 cors:
   allowed-origins:
-    - http://111.229.45.33
-    - https://111.229.45.33
-    - http://111.229.45.33:8001
-    - https://111.229.45.33:8001
+    - http://49.234.182.250/
+    - https://49.234.182.250/
+    - http://49.234.182.250:8001
+    - https://49.234.182.250:8001
     # 如果需要支持其他域名，添加以下配置
 
 

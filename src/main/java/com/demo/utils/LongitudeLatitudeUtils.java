@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 经纬度获取工具类
- * 根据地址描述（injuryLocationDesc）调用高德地图API获取经纬度信息
+ * 根据地址描述（injuryLocationDesc）调用腾讯位置服务 WebServiceAPI 获取经纬度信息
  * 
  * <p>功能特性：
  * <ul>
@@ -176,7 +176,7 @@ public final class LongitudeLatitudeUtils {
      * 批量更新记录的经纬度字段
      * 
      * @param records 需要更新的记录列表，不能为null
-     * @param apiKey 高德地图API Key，不能为null或空
+     * @param apiKey 腾讯位置服务 Key，不能为null或空
      * @param city 城市名称（如"上海"），不能为null或空
      * @throws IllegalArgumentException 如果参数无效
      */
@@ -187,7 +187,7 @@ public final class LongitudeLatitudeUtils {
         }
         
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            throw new IllegalArgumentException("高德地图API Key不能为空");
+            throw new IllegalArgumentException("腾讯位置服务 Key 不能为空");
         }
         
         if (city == null || city.trim().isEmpty()) {
@@ -384,21 +384,20 @@ public final class LongitudeLatitudeUtils {
     }
     
     /**
-     * 调用高德地理编码API获取经纬度
-     * 
+     * 调用腾讯地理编码API获取经纬度
+     *
      * @param address 地址，不能为null
-     * @param apiKey 高德地图API Key，不能为null
+     * @param apiKey 腾讯位置服务 Key，不能为null
      * @param city 城市名称，不能为null
      * @return 经纬度数组 [经度, 纬度]，如果获取失败则返回null
      */
     private static double[] geocodeAddress(String address, String apiKey, String city) {
         for (int attempt = 0; attempt <= MAX_RETRY_COUNT; attempt++) {
             try {
-                String urlStr = "https://api.map.baidu.com/geocoding/v3/"
-                    + "?ak=" + URLEncoder.encode(apiKey, "UTF-8")
-                    + "&address=" + URLEncoder.encode(address, "UTF-8")
-                    + "&city=" + URLEncoder.encode(city, "UTF-8")
-                    + "&output=json";
+                String urlStr = "https://apis.map.qq.com/ws/geocoder/v1/"
+                    + "?address=" + URLEncoder.encode(address, "UTF-8")
+                    + "&region=" + URLEncoder.encode(city, "UTF-8")
+                    + "&key=" + URLEncoder.encode(apiKey, "UTF-8");
                 
                 URL url = new URL(urlStr);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -438,23 +437,24 @@ public final class LongitudeLatitudeUtils {
     }
     
     /**
-     * 调用高德地点搜索API获取经纬度
-     * 
+     * 调用腾讯地点搜索API获取经纬度
+     *
      * @param keyword 搜索关键词，不能为null
-     * @param apiKey 高德地图API Key，不能为null
+     * @param apiKey 腾讯位置服务 Key，不能为null
      * @param city 城市名称，不能为null
      * @return 经纬度数组 [经度, 纬度]，如果获取失败则返回null
      */
     private static double[] searchPlace(String keyword, String apiKey, String city) {
         for (int attempt = 0; attempt <= MAX_RETRY_COUNT; attempt++) {
             try {
-                String urlStr = "https://api.map.baidu.com/place/v2/search"
-                    + "?ak=" + URLEncoder.encode(apiKey, "UTF-8")
-                    + "&query=" + URLEncoder.encode(keyword, "UTF-8")
-                    + "&region=" + URLEncoder.encode(city, "UTF-8")
-                    + "&output=json"
+                // boundary=region(上海,0) 形式；city 兼容 "上海" / "上海市"
+                String region = city != null ? city.replace("市", "") : "上海";
+                String urlStr = "https://apis.map.qq.com/ws/place/v1/search"
+                    + "?keyword=" + URLEncoder.encode(keyword, "UTF-8")
+                    + "&boundary=" + URLEncoder.encode("region(" + region + ",0)", "UTF-8")
                     + "&page_size=1"
-                    + "&page_num=0";
+                    + "&page_index=1"
+                    + "&key=" + URLEncoder.encode(apiKey, "UTF-8");
                 
                 URL url = new URL(urlStr);
                 HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -525,13 +525,13 @@ public final class LongitudeLatitudeUtils {
             JSONObject json = new JSONObject(responseBody);
             int status = json.optInt("status", -1);
             if (status != 0) {
-                logger.debug("百度地理编码API返回失败状态: {}, 消息: {}", status, json.optString("message"));
+                logger.debug("腾讯地理编码API返回失败状态: {}, 消息: {}", status, json.optString("message"));
                 return null;
             }
             
             JSONObject result = json.optJSONObject("result");
             if (result == null) {
-                logger.debug("百度地理编码API未找到结果");
+                logger.debug("腾讯地理编码API未找到结果");
                 return null;
             }
             
@@ -549,7 +549,7 @@ public final class LongitudeLatitudeUtils {
             
             return new double[]{lng, lat};
         } catch (Exception e) {
-            logger.debug("解析百度地理编码API响应失败: {}", e.getMessage());
+            logger.debug("解析腾讯地理编码API响应失败: {}", e.getMessage());
             return null;
         }
     }
@@ -565,17 +565,17 @@ public final class LongitudeLatitudeUtils {
             JSONObject json = new JSONObject(responseBody);
             int status = json.optInt("status", -1);
             if (status != 0) {
-                logger.debug("百度地点检索API返回失败状态: {}, 消息: {}", status, json.optString("message"));
+                logger.debug("腾讯地点检索API返回失败状态: {}, 消息: {}", status, json.optString("message"));
                 return null;
             }
             
-            JSONArray results = json.optJSONArray("results");
-            if (results == null || results.length() == 0) {
-                logger.debug("百度地点检索API未找到结果");
+            JSONArray data = json.optJSONArray("data");
+            if (data == null || data.length() == 0) {
+                logger.debug("腾讯地点检索API未找到结果");
                 return null;
             }
             
-            JSONObject firstResult = results.getJSONObject(0);
+            JSONObject firstResult = data.getJSONObject(0);
             JSONObject location = firstResult.optJSONObject("location");
             if (location == null) {
                 return null;
@@ -590,7 +590,7 @@ public final class LongitudeLatitudeUtils {
             
             return new double[]{lng, lat};
         } catch (Exception e) {
-            logger.debug("解析百度地点检索API响应失败: {}", e.getMessage());
+            logger.debug("解析腾讯地点检索API响应失败: {}", e.getMessage());
             return null;
         }
     }

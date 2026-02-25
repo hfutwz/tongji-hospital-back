@@ -9,7 +9,7 @@ import java.net.URL;
 import java.time.LocalDate;
 
 public class ExtraFieldUtils {
-    private static final String API_KEY = "BI7wZWOqdUTkfYNbZCx5GP7P7C2DyBw7"; // 请替换为你的百度地图AK
+    private static final String API_KEY = "RR3BZ-IZQLQ-YCW5Y-26IOE-3QK7E-IXBK5"; // 腾讯位置服务 Key
     /**
      * 获取季节
      * @param date
@@ -61,18 +61,17 @@ public class ExtraFieldUtils {
         return null;
     }
     /**
-     * 根据地址调用高德地图API获取经纬度
+     * 根据地址调用腾讯位置服务 WebServiceAPI 获取经纬度
      * @param address 地址字符串("上海市"+address)
      * @return double数组[经度, 纬度]，失败返回null
      */
     public static double[] getLngLatFromAddress(String address) {
         try {
             String fullAddress = "上海市" + address; // 拼接
-            String urlStr = "https://api.map.baidu.com/geocoding/v3/"
-                    + "?ak=" + API_KEY
-                    + "&address=" + java.net.URLEncoder.encode(fullAddress, "UTF-8")
-                    + "&city=上海"
-                    + "&output=json";
+            String urlStr = "https://apis.map.qq.com/ws/geocoder/v1/"
+                    + "?address=" + java.net.URLEncoder.encode(fullAddress, "UTF-8")
+                    + "&region=" + java.net.URLEncoder.encode("上海", "UTF-8")
+                    + "&key=" + java.net.URLEncoder.encode(API_KEY, "UTF-8");
             URL url = new URL(urlStr);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(10000);
@@ -90,7 +89,7 @@ public class ExtraFieldUtils {
             }
             reader.close();
 
-            // 解析百度API返回json
+            // 解析腾讯API返回json
             JSONObject json = new JSONObject(sb.toString());
             int status = json.optInt("status", -1);
             if (status == 0) {

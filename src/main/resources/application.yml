@@ -39,11 +39,11 @@ mybatis-plus:
   mapper-locations: classpath:mapper/*.xml
 
 # ============================================
-# 百度地图API配置（所有环境共享）
+# 腾讯位置服务 Key 配置（所有环境共享）
 # ============================================
 amap:
   api:
-    key: BI7wZWOqdUTkfYNbZCx5GP7P7C2DyBw7
+    key: RR3BZ-IZQLQ-YCW5Y-26IOE-3QK7E-IXBK5
   city: 上海
 
 # ============================================

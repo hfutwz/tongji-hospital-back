@@ -11,7 +11,7 @@
 spring:
   datasource:
     # 生产环境数据库连接（请根据实际服务器配置修改）
-    url: jdbc:mysql://localhost:13307/healthineersvisualization?useSSL=false&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8&autoReconnect=true&failOverReadOnly=false&maxReconnects=10&useOldAliasMetadataBehavior=true
+    url: jdbc:mysql://localhost:13307/healthineersvisualization?useSSL=false&serverTimezone=Asia/Shanghai&useUnicode=true&characterEncoding=utf8mb4&autoReconnect=true&failOverReadOnly=false&maxReconnects=10&useOldAliasMetadataBehavior=true
     username: root
     password: wzProJe@@cT!Dro#dSSaPIfU73==39@
     driver-class-name: com.mysql.jdbc.Driver
@@ -25,6 +25,7 @@ spring:
 
 # ============================================
 # 日志配置（生产环境使用INFO级别）
+# java -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8 -jar healthineers-visualization.jar --spring.profiles.active=prod
 # ============================================
 logging:
   level:

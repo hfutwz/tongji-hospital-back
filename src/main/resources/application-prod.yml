@@ -25,6 +25,7 @@ spring:
 
 # ============================================
 # 日志配置（生产环境使用INFO级别）
+# java -Duser.timezone=Asia/Shanghai -Dfile.encoding=UTF-8 -jar healthineers-visualization.jar --spring.profiles.active=prod
 # ============================================
 logging:
   level:

@@ -8,8 +8,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -90,10 +91,13 @@ public class PredictionController {
     @GetMapping("/cause-by-district")
     public Result causeByDistrict(@RequestParam String district) {
         try {
-            String encoded = URLEncoder.encode(district, StandardCharsets.UTF_8);
+            String encoded = URLEncoder.encode(district, "UTF-8");
             String url = predictionServiceUrl + "/predict/cause-by-district?district=" + encoded;
             Map<?, ?> result = restTemplate.getForObject(url, Map.class);
             return Result.ok(result);
+        } catch (UnsupportedEncodingException e) {
+            log.error("URL编码失败", e);
+            return Result.fail("地区参数编码失败");
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达: {}", e.getMessage());
             return Result.fail("预测服务暂时不可用，请稍后重试");
@@ -202,7 +206,10 @@ public class PredictionController {
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达，模型更新跳过: {}", e.getMessage());
             // 非阻塞：服务不可达时返回成功（不影响主流程）
-            return Result.ok(Map.of("status", "skipped", "reason", "prediction_service_unavailable"));
+            Map<String, String> skipResult = new HashMap<>();
+            skipResult.put("status", "skipped");
+            skipResult.put("reason", "prediction_service_unavailable");
+            return Result.ok(skipResult);
         } catch (Exception e) {
             log.error("触发模型更新失败", e);
             return Result.fail("模型更新失败: " + e.getMessage());

@@ -8,8 +8,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -90,10 +91,13 @@ public class PredictionController {
     @GetMapping("/cause-by-district")
     public Result causeByDistrict(@RequestParam String district) {
         try {
-            String encoded = URLEncoder.encode(district, StandardCharsets.UTF_8);
+            String encoded = URLEncoder.encode(district, "UTF-8");
             String url = predictionServiceUrl + "/predict/cause-by-district?district=" + encoded;
             Map<?, ?> result = restTemplate.getForObject(url, Map.class);
             return Result.ok(result);
+        } catch (UnsupportedEncodingException e) {
+            log.error("URL编码失败", e);
+            return Result.fail("地区参数编码失败");
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达: {}", e.getMessage());
             return Result.fail("预测服务暂时不可用，请稍后重试");
@@ -190,78 +194,6 @@ public class PredictionController {
     }
 
     /**
-     * 获取模型版本详细信息（基础版/增量版，样本数等）
-     * GET /api/prediction/model/version
-     */
-    @GetMapping("/model/version")
-    public Result modelVersion() {
-        try {
-            String url = predictionServiceUrl + "/api/model/version";
-            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
-            return Result.ok(result);
-        } catch (ResourceAccessException e) {
-            log.warn("预测服务不可达: {}", e.getMessage());
-            return Result.fail("预测服务暂时不可用");
-        } catch (Exception e) {
-            log.error("查询模型版本失败", e);
-            return Result.fail("查询失败: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 同步预测模型（手动触发增量训练）
-     * POST /api/prediction/model/sync
-     * 
-     * 功能：
-     * 1. 检查基础模型是否存在（基于 Excel 的 2000+ 条数据）
-     * 2. 如不存在，先从 Excel 训练基础模型
-     * 3. 执行增量训练（基础模型 + 数据库新增数据）
-     * 4. 返回新版本信息
-     * 
-     * 供前端"患者列表"页面的"同步预测模型"按钮调用
-     */
-    @PostMapping("/model/sync")
-    public Result syncModel(@RequestBody(required = false) Map<String, Object> body) {
-        try {
-            // 调用 Python 服务的增量训练接口
-            String url = predictionServiceUrl + "/api/model/train-incremental";
-            
-            Map<String, Object> params = body != null ? body : Map.of();
-            Map<?, ?> result = restTemplate.postForObject(url, params, Map.class);
-            
-            if (result == null) {
-                return Result.fail("预测服务返回空结果");
-            }
-            
-            String status = (String) result.get("status");
-            
-            // 如果基础模型不存在，尝试先训练基础模型
-            if ("error".equals(status) && result.get("message") != null 
-                    && result.get("message").toString().contains("基础模型不存在")) {
-                log.info("基础模型不存在，先执行基础训练...");
-                String baseUrl = predictionServiceUrl + "/api/model/train-base?force=false";
-                Map<?, ?> baseResult = restTemplate.postForObject(baseUrl, null, Map.class);
-                
-                if (baseResult != null && "trained".equals(baseResult.get("status"))) {
-                    // 基础训练成功，再次尝试增量训练
-                    result = restTemplate.postForObject(url, params, Map.class);
-                } else {
-                    return Result.fail("基础模型训练失败: " + baseResult);
-                }
-            }
-            
-            return Result.ok(result);
-            
-        } catch (ResourceAccessException e) {
-            log.warn("预测服务不可达，模型同步失败: {}", e.getMessage());
-            return Result.fail("预测服务暂时不可用，请检查 Python 服务是否启动");
-        } catch (Exception e) {
-            log.error("模型同步失败", e);
-            return Result.fail("模型同步失败: " + e.getMessage());
-        }
-    }
-
-    /**
      * 触发模型增量更新（数据导入完成后由 UploadController 异步调用，也可手动触发）
      * POST /api/prediction/model/trigger-update
      */
@@ -274,7 +206,10 @@ public class PredictionController {
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达，模型更新跳过: {}", e.getMessage());
             // 非阻塞：服务不可达时返回成功（不影响主流程）
-            return Result.ok(Map.of("status", "skipped", "reason", "prediction_service_unavailable"));
+            Map<String, String> skipResult = new HashMap<>();
+            skipResult.put("status", "skipped");
+            skipResult.put("reason", "prediction_service_unavailable");
+            return Result.ok(skipResult);
         } catch (Exception e) {
             log.error("触发模型更新失败", e);
             return Result.fail("模型更新失败: " + e.getMessage());

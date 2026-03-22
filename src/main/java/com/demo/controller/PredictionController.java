@@ -194,6 +194,71 @@ public class PredictionController {
     }
 
     /**
+     * 获取模型版本详细信息（基础版/增量版，样本数等）
+     * GET /api/prediction/model/version
+     */
+    @GetMapping("/model/version")
+    public Result modelVersion() {
+        try {
+            String url = predictionServiceUrl + "/api/model/version";
+            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
+            return Result.ok(result);
+        } catch (ResourceAccessException e) {
+            log.warn("预测服务不可达: {}", e.getMessage());
+            return Result.fail("预测服务暂时不可用");
+        } catch (Exception e) {
+            log.error("查询模型版本失败", e);
+            return Result.fail("查询失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 同步预测模型（手动触发增量训练）
+     * POST /api/prediction/model/sync
+     * 
+     * 供前端"患者列表"页面的"同步预测模型"按钮调用
+     */
+    @PostMapping("/model/sync")
+    public Result syncModel(@RequestBody(required = false) Map<String, Object> body) {
+        try {
+            // 调用 Python 服务的增量训练接口
+            String url = predictionServiceUrl + "/api/model/train-incremental";
+            
+            Map<?, ?> result = restTemplate.postForObject(url, body, Map.class);
+            
+            if (result == null) {
+                return Result.fail("预测服务返回空结果");
+            }
+            
+            String status = (String) result.get("status");
+            
+            // 如果基础模型不存在，尝试先训练基础模型
+            if ("error".equals(status) && result.get("message") != null 
+                    && result.get("message").toString().contains("基础模型不存在")) {
+                log.info("基础模型不存在，先执行基础训练...");
+                String baseUrl = predictionServiceUrl + "/api/model/train-base?force=false";
+                Map<?, ?> baseResult = restTemplate.postForObject(baseUrl, null, Map.class);
+                
+                if (baseResult != null && "trained".equals(baseResult.get("status"))) {
+                    // 基础训练成功，再次尝试增量训练
+                    result = restTemplate.postForObject(url, body, Map.class);
+                } else {
+                    return Result.fail("基础模型训练失败");
+                }
+            }
+            
+            return Result.ok(result);
+            
+        } catch (ResourceAccessException e) {
+            log.warn("预测服务不可达，模型同步失败: {}", e.getMessage());
+            return Result.fail("预测服务暂时不可用，请检查 Python 服务是否启动");
+        } catch (Exception e) {
+            log.error("模型同步失败", e);
+            return Result.fail("模型同步失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * 触发模型增量更新（数据导入完成后由 UploadController 异步调用，也可手动触发）
      * POST /api/prediction/model/trigger-update
      */

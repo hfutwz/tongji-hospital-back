@@ -230,7 +230,7 @@ public class PredictionController {
                 return Result.fail("预测服务返回空结果");
             }
             
-            String status = (String) result.get("status");
+            String status = result.get("status") != null ? result.get("status").toString() : "";
             
             // 如果基础模型不存在，尝试先训练基础模型
             if ("error".equals(status) && result.get("message") != null 

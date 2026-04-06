@@ -10,8 +10,13 @@ import org.springframework.web.client.RestTemplate;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 预测服务代理 Controller
@@ -27,6 +32,12 @@ public class PredictionController {
 
     private static final Logger log = LoggerFactory.getLogger(PredictionController.class);
 
+    /** 与预测服务 ALLOWED_DISTRICTS、前端 predictionOptions 一致 */
+    private static final Set<String> ALLOWED_DISTRICTS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+            "黄浦区", "徐汇区", "长宁区", "静安区", "普陀区", "虹口区", "杨浦区", "浦东新区",
+            "闵行区", "宝山区", "嘉定区", "金山区", "松江区", "青浦区", "奉贤区", "崇明区"
+    )));
+
     @Value("${prediction.service.url:http://localhost:8000}")
     private String predictionServiceUrl;
 
@@ -34,6 +45,13 @@ public class PredictionController {
 
     public PredictionController(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
+    }
+
+    private boolean isAllowedDistrict(String district) {
+        if (district == null) {
+            return false;
+        }
+        return ALLOWED_DISTRICTS.contains(district.trim());
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -90,6 +108,9 @@ public class PredictionController {
      */
     @GetMapping("/cause-by-district")
     public Result causeByDistrict(@RequestParam String district) {
+        if (!isAllowedDistrict(district)) {
+            return Result.fail("地区参数不在允许列表内");
+        }
         try {
             String encoded = URLEncoder.encode(district, "UTF-8");
             String url = predictionServiceUrl + "/predict/cause-by-district?district=" + encoded;
@@ -114,6 +135,12 @@ public class PredictionController {
      */
     @PostMapping("/comprehensive")
     public Result comprehensive(@RequestBody Map<String, Object> body) {
+        Object dObj = body != null ? body.get("district") : null;
+        if (dObj instanceof String && !((String) dObj).trim().isEmpty()) {
+            if (!isAllowedDistrict((String) dObj)) {
+                return Result.fail("地区参数不在允许列表内");
+            }
+        }
         try {
             String url = predictionServiceUrl + "/predict/comprehensive";
             Map<?, ?> result = restTemplate.postForObject(url, body, Map.class);
@@ -160,6 +187,58 @@ public class PredictionController {
                 url.append("?injury_cause=").append(injuryCause);
             }
             Map<?, ?> result = restTemplate.getForObject(url.toString(), Map.class);
+            return Result.ok(result);
+        } catch (ResourceAccessException e) {
+            log.warn("预测服务不可达: {}", e.getMessage());
+            return Result.fail("预测服务暂时不可用，请稍后重试");
+        } catch (Exception e) {
+            log.error("调用预测服务失败", e);
+            return Result.fail("预测请求失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 类型 3：某地区 → 时段 / 季节 / 伤因分布
+     * GET /api/prediction/district-profile?district=宝山区
+     */
+    @GetMapping("/district-profile")
+    public Result districtProfile(@RequestParam String district) {
+        if (!isAllowedDistrict(district)) {
+            return Result.fail("地区参数不在允许列表内");
+        }
+        try {
+            String encoded = URLEncoder.encode(district.trim(), "UTF-8");
+            String url = predictionServiceUrl + "/predict/district-profile?district=" + encoded;
+            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
+            return Result.ok(result);
+        } catch (UnsupportedEncodingException e) {
+            log.error("URL编码失败", e);
+            return Result.fail("地区参数编码失败");
+        } catch (ResourceAccessException e) {
+            log.warn("预测服务不可达: {}", e.getMessage());
+            return Result.fail("预测服务暂时不可用，请稍后重试");
+        } catch (Exception e) {
+            log.error("调用预测服务失败", e);
+            return Result.fail("预测请求失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 类型 4：某时段 + 某伤因 → 各区县分布（原始计数）
+     * GET /api/prediction/district-by-period-cause?time_period=3&injury_cause=0
+     */
+    @GetMapping("/district-by-period-cause")
+    public Result districtByPeriodCause(
+            @RequestParam("time_period") int timePeriod,
+            @RequestParam("injury_cause") int injuryCause) {
+        if (timePeriod < 0 || timePeriod > 5 || injuryCause < 0 || injuryCause > 4) {
+            return Result.fail("时段或伤因参数超出允许范围");
+        }
+        try {
+            String url = String.format(Locale.US,
+                    "%s/predict/district-by-period-cause?time_period=%d&injury_cause=%d",
+                    predictionServiceUrl, timePeriod, injuryCause);
+            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
             return Result.ok(result);
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达: {}", e.getMessage());

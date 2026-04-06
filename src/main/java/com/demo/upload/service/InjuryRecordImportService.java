@@ -354,13 +354,73 @@ public class InjuryRecordImportService {
                 logger.warn("时间段更新失败，但继续导入数据: {}", e.getMessage());
             }
             
-            // 更新经纬度（调用高德地图API，即使失败也不影响数据导入）
+            // 更新经纬度（腾讯位置服务 WebServiceAPI：尽量复用数据库已有坐标，减少API调用）
             try {
-                LongitudeLatitudeUtils.updateLongitudeLatitude(
-                    validRecords, 
-                    amapConfig.getApiKey(), 
-                    amapConfig.getCity()
-                );
+                // 1) 先从数据库复用：同地址已有经纬度的记录，直接拷贝到本次导入记录
+                Map<String, double[]> existingCoords = new HashMap<>();
+                Set<String> uniqueAddresses = new HashSet<>();
+                for (InjuryRecord r : validRecords) {
+                    if (r == null) continue;
+                    if (r.getLongitude() != null && r.getLatitude() != null) continue;
+                    String addr = r.getInjuryLocationDesc();
+                    if (addr != null) {
+                        String k = addr.trim();
+                        if (!k.isEmpty()) uniqueAddresses.add(k);
+                    }
+                }
+                if (!uniqueAddresses.isEmpty()) {
+                    List<InjuryRecord> existing = injuryRecordMapper.selectList(
+                        new LambdaQueryWrapper<InjuryRecord>()
+                            .in(InjuryRecord::getInjuryLocationDesc, uniqueAddresses)
+                            .isNotNull(InjuryRecord::getLongitude)
+                            .isNotNull(InjuryRecord::getLatitude)
+                    );
+                    if (existing != null) {
+                        for (InjuryRecord e : existing) {
+                            if (e == null) continue;
+                            String addr = e.getInjuryLocationDesc();
+                            if (addr == null) continue;
+                            if (e.getLongitude() == null || e.getLatitude() == null) continue;
+                            existingCoords.putIfAbsent(addr.trim(), new double[]{e.getLongitude(), e.getLatitude()});
+                        }
+                    }
+                }
+                int reusedCount = 0;
+                if (!existingCoords.isEmpty()) {
+                    for (InjuryRecord r : validRecords) {
+                        if (r == null) continue;
+                        if (r.getLongitude() != null && r.getLatitude() != null) continue;
+                        String addr = r.getInjuryLocationDesc();
+                        if (addr == null) continue;
+                        double[] ll = existingCoords.get(addr.trim());
+                        if (ll != null) {
+                            r.setLongitude(ll[0]);
+                            r.setLatitude(ll[1]);
+                            reusedCount++;
+                        }
+                    }
+                }
+                if (reusedCount > 0) {
+                    logger.info("经纬度复用完成：从数据库复用 {} 条记录坐标（避免重复调用外部API）", reusedCount);
+                }
+
+                // 2) 仅对仍缺失坐标的记录调用外部地理编码（可显著降低额度消耗）
+                List<InjuryRecord> needGeo = new ArrayList<>();
+                for (InjuryRecord r : validRecords) {
+                    if (r == null) continue;
+                    if (r.getLongitude() == null || r.getLatitude() == null) {
+                        needGeo.add(r);
+                    }
+                }
+                if (!needGeo.isEmpty()) {
+                    LongitudeLatitudeUtils.updateLongitudeLatitude(
+                        needGeo,
+                        amapConfig.getApiKey(),
+                        amapConfig.getCity()
+                    );
+                } else {
+                    logger.info("本次导入记录已全部具备经纬度，无需调用外部地理编码API");
+                }
                 logger.info("经纬度更新完成");
             } catch (Exception e) {
                 logger.warn("经纬度更新失败，但继续导入数据: {}", e.getMessage());

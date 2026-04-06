@@ -341,7 +341,7 @@ public class PredictionController {
     }
 
     /**
-     * 触发模型增量更新（数据导入完成后由 UploadController 异步调用，也可手动触发）
+     * 触发模型增量更新（旧接口保留，需 Python 可达数据库时使用）
      * POST /api/prediction/model/trigger-update
      */
     @PostMapping("/model/trigger-update")
@@ -352,7 +352,6 @@ public class PredictionController {
             return Result.ok(result);
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达，模型更新跳过: {}", e.getMessage());
-            // 非阻塞：服务不可达时返回成功（不影响主流程）
             Map<String, String> skipResult = new HashMap<>();
             skipResult.put("status", "skipped");
             skipResult.put("reason", "prediction_service_unavailable");
@@ -360,6 +359,32 @@ public class PredictionController {
         } catch (Exception e) {
             log.error("触发模型更新失败", e);
             return Result.fail("模型更新失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 推送新增数据给预测服务做增量训练（不依赖数据库）
+     * POST /api/prediction/model/incremental
+     *
+     * 由 InjuryRecordImportService 导入成功后异步调用，
+     * body 格式：{"records": [{admission_date, admission_time, time_period, season,
+     *                          injury_cause_category, injury_location}, ...]}
+     */
+    @PostMapping("/model/incremental")
+    public Result incrementalPush(@RequestBody Map<String, Object> body) {
+        try {
+            String url = predictionServiceUrl + "/api/model/incremental";
+            Map<?, ?> result = restTemplate.postForObject(url, body, Map.class);
+            return Result.ok(result);
+        } catch (ResourceAccessException e) {
+            log.warn("预测服务不可达，增量推送跳过: {}", e.getMessage());
+            Map<String, String> skipResult = new HashMap<>();
+            skipResult.put("status", "skipped");
+            skipResult.put("reason", "prediction_service_unavailable");
+            return Result.ok(skipResult);
+        } catch (Exception e) {
+            log.error("增量推送失败", e);
+            return Result.fail("增量推送失败: " + e.getMessage());
         }
     }
 

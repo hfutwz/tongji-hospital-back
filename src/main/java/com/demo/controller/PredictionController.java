@@ -48,8 +48,9 @@ public class PredictionController {
     }
 
     private boolean isAllowedDistrict(String district) {
-        if (district == null) {
-            return false;
+        if (district == null || district.trim().isEmpty()) {
+            // null 或空字符串代表全选，直接放行
+            return true;
         }
         return ALLOWED_DISTRICTS.contains(district.trim());
     }
@@ -157,12 +158,18 @@ public class PredictionController {
     /**
      * T2: 某伤因的时段/季节历史分布
      * GET /api/prediction/time-distribution?injury_cause=0
+     * injury_cause 可不传（全选，汇总所有伤因）
      */
     @GetMapping("/time-distribution")
-    public Result timeDistribution(@RequestParam("injury_cause") int injuryCause) {
+    public Result timeDistribution(
+            @RequestParam(value = "injury_cause", required = false) Integer injuryCause) {
         try {
-            String url = predictionServiceUrl + "/predict/time-distribution?injury_cause=" + injuryCause;
-            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
+            StringBuilder url = new StringBuilder(predictionServiceUrl)
+                    .append("/predict/time-distribution");
+            if (injuryCause != null) {
+                url.append("?injury_cause=").append(injuryCause);
+            }
+            Map<?, ?> result = restTemplate.getForObject(url.toString(), Map.class);
             return Result.ok(result);
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达: {}", e.getMessage());
@@ -200,16 +207,21 @@ public class PredictionController {
     /**
      * 类型 3：某地区 → 时段 / 季节 / 伤因分布
      * GET /api/prediction/district-profile?district=宝山区
+     * district 可不传（全选，汇总全市数据）
      */
     @GetMapping("/district-profile")
-    public Result districtProfile(@RequestParam String district) {
+    public Result districtProfile(
+            @RequestParam(value = "district", required = false) String district) {
         if (!isAllowedDistrict(district)) {
             return Result.fail("地区参数不在允许列表内");
         }
         try {
-            String encoded = URLEncoder.encode(district.trim(), "UTF-8");
-            String url = predictionServiceUrl + "/predict/district-profile?district=" + encoded;
-            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
+            StringBuilder url = new StringBuilder(predictionServiceUrl)
+                    .append("/predict/district-profile");
+            if (district != null && !district.trim().isEmpty()) {
+                url.append("?district=").append(URLEncoder.encode(district.trim(), "UTF-8"));
+            }
+            Map<?, ?> result = restTemplate.getForObject(url.toString(), Map.class);
             return Result.ok(result);
         } catch (UnsupportedEncodingException e) {
             log.error("URL编码失败", e);
@@ -226,19 +238,30 @@ public class PredictionController {
     /**
      * 类型 4：某时段 + 某伤因 → 各区县分布（原始计数）
      * GET /api/prediction/district-by-period-cause?time_period=3&injury_cause=0
+     * time_period、injury_cause 均可不传（全选）
      */
     @GetMapping("/district-by-period-cause")
     public Result districtByPeriodCause(
-            @RequestParam("time_period") int timePeriod,
-            @RequestParam("injury_cause") int injuryCause) {
-        if (timePeriod < 0 || timePeriod > 5 || injuryCause < 0 || injuryCause > 4) {
-            return Result.fail("时段或伤因参数超出允许范围");
+            @RequestParam(value = "time_period", required = false) Integer timePeriod,
+            @RequestParam(value = "injury_cause", required = false) Integer injuryCause) {
+        if (timePeriod != null && (timePeriod < 0 || timePeriod > 5)) {
+            return Result.fail("时段参数超出允许范围（0-5）");
+        }
+        if (injuryCause != null && (injuryCause < 0 || injuryCause > 4)) {
+            return Result.fail("伤因参数超出允许范围（0-4）");
         }
         try {
-            String url = String.format(Locale.US,
-                    "%s/predict/district-by-period-cause?time_period=%d&injury_cause=%d",
-                    predictionServiceUrl, timePeriod, injuryCause);
-            Map<?, ?> result = restTemplate.getForObject(url, Map.class);
+            StringBuilder url = new StringBuilder(predictionServiceUrl)
+                    .append("/predict/district-by-period-cause");
+            boolean hasParam = false;
+            if (timePeriod != null) {
+                url.append("?time_period=").append(timePeriod);
+                hasParam = true;
+            }
+            if (injuryCause != null) {
+                url.append(hasParam ? "&" : "?").append("injury_cause=").append(injuryCause);
+            }
+            Map<?, ?> result = restTemplate.getForObject(url.toString(), Map.class);
             return Result.ok(result);
         } catch (ResourceAccessException e) {
             log.warn("预测服务不可达: {}", e.getMessage());

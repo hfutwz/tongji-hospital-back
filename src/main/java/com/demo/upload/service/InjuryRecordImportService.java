@@ -18,8 +18,11 @@ import org.apache.poi.ss.usermodel.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,6 +50,12 @@ public class InjuryRecordImportService {
     
     @Autowired
     private AmapConfig amapConfig;
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @Value("${prediction.service.url:http://localhost:8000}")
+    private String predictionServiceUrl;
     
     /**
      * 受伤原因分类映射
@@ -354,13 +363,73 @@ public class InjuryRecordImportService {
                 logger.warn("时间段更新失败，但继续导入数据: {}", e.getMessage());
             }
             
-            // 更新经纬度（调用高德地图API，即使失败也不影响数据导入）
+            // 更新经纬度（腾讯位置服务 WebServiceAPI：尽量复用数据库已有坐标，减少API调用）
             try {
-                LongitudeLatitudeUtils.updateLongitudeLatitude(
-                    validRecords, 
-                    amapConfig.getApiKey(), 
-                    amapConfig.getCity()
-                );
+                // 1) 先从数据库复用：同地址已有经纬度的记录，直接拷贝到本次导入记录
+                Map<String, double[]> existingCoords = new HashMap<>();
+                Set<String> uniqueAddresses = new HashSet<>();
+                for (InjuryRecord r : validRecords) {
+                    if (r == null) continue;
+                    if (r.getLongitude() != null && r.getLatitude() != null) continue;
+                    String addr = r.getInjuryLocationDesc();
+                    if (addr != null) {
+                        String k = addr.trim();
+                        if (!k.isEmpty()) uniqueAddresses.add(k);
+                    }
+                }
+                if (!uniqueAddresses.isEmpty()) {
+                    List<InjuryRecord> existing = injuryRecordMapper.selectList(
+                        new LambdaQueryWrapper<InjuryRecord>()
+                            .in(InjuryRecord::getInjuryLocationDesc, uniqueAddresses)
+                            .isNotNull(InjuryRecord::getLongitude)
+                            .isNotNull(InjuryRecord::getLatitude)
+                    );
+                    if (existing != null) {
+                        for (InjuryRecord e : existing) {
+                            if (e == null) continue;
+                            String addr = e.getInjuryLocationDesc();
+                            if (addr == null) continue;
+                            if (e.getLongitude() == null || e.getLatitude() == null) continue;
+                            existingCoords.putIfAbsent(addr.trim(), new double[]{e.getLongitude(), e.getLatitude()});
+                        }
+                    }
+                }
+                int reusedCount = 0;
+                if (!existingCoords.isEmpty()) {
+                    for (InjuryRecord r : validRecords) {
+                        if (r == null) continue;
+                        if (r.getLongitude() != null && r.getLatitude() != null) continue;
+                        String addr = r.getInjuryLocationDesc();
+                        if (addr == null) continue;
+                        double[] ll = existingCoords.get(addr.trim());
+                        if (ll != null) {
+                            r.setLongitude(ll[0]);
+                            r.setLatitude(ll[1]);
+                            reusedCount++;
+                        }
+                    }
+                }
+                if (reusedCount > 0) {
+                    logger.info("经纬度复用完成：从数据库复用 {} 条记录坐标（避免重复调用外部API）", reusedCount);
+                }
+
+                // 2) 仅对仍缺失坐标的记录调用外部地理编码（可显著降低额度消耗）
+                List<InjuryRecord> needGeo = new ArrayList<>();
+                for (InjuryRecord r : validRecords) {
+                    if (r == null) continue;
+                    if (r.getLongitude() == null || r.getLatitude() == null) {
+                        needGeo.add(r);
+                    }
+                }
+                if (!needGeo.isEmpty()) {
+                    LongitudeLatitudeUtils.updateLongitudeLatitude(
+                        needGeo,
+                        amapConfig.getApiKey(),
+                        amapConfig.getCity()
+                    );
+                } else {
+                    logger.info("本次导入记录已全部具备经纬度，无需调用外部地理编码API");
+                }
                 logger.info("经纬度更新完成");
             } catch (Exception e) {
                 logger.warn("经纬度更新失败，但继续导入数据: {}", e.getMessage());
@@ -368,7 +437,16 @@ public class InjuryRecordImportService {
             
             // 导入数据
             ImportResultDTO importResult = importInjuryRecordData(validRecords);
-            
+
+            // 导入成功后异步推送新增记录给预测服务做增量训练
+            if (Boolean.TRUE.equals(importResult.getSuccess()) && importResult.getInsertCount() != null && importResult.getInsertCount() > 0) {
+                // 只推送本次新插入的记录（更新的记录模型已见过，不需要重推）
+                List<InjuryRecord> insertedRecords = validRecords.stream()
+                    .filter(r -> r.getInjuryId() != null)  // 入库后有 id 的才推
+                    .collect(java.util.stream.Collectors.toList());
+                pushIncrementalToPredictionAsync(insertedRecords);
+            }
+
             result.put("validation", validationResult);
             result.put("import", importResult);
             result.put("success", importResult.getSuccess());
@@ -701,6 +779,39 @@ public class InjuryRecordImportService {
         error.setValue(value != null ? value.toString() : "");
         error.setMessage(message);
         return error;
+    }
+
+    /**
+     * 异步将新增的 InjuryRecord 推送给 Python 预测服务做增量训练。
+     * 非阻塞：服务不可达时只打印 warn，不影响导入主流程。
+     */
+    @Async
+    public void pushIncrementalToPredictionAsync(List<InjuryRecord> records) {
+        if (records == null || records.isEmpty()) return;
+        try {
+            List<Map<String, Object>> payload = new ArrayList<>();
+            for (InjuryRecord r : records) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("admission_date", r.getAdmissionDate() != null ? r.getAdmissionDate().toString() : null);
+                item.put("admission_time", r.getAdmissionTime());
+                item.put("time_period", r.getTimePeriod());
+                item.put("season", r.getSeason());
+                item.put("injury_cause_category", r.getInjuryCauseCategory());
+                item.put("injury_location", r.getInjuryLocationDesc());
+                payload.add(item);
+            }
+            Map<String, Object> body = new HashMap<>();
+            body.put("records", payload);
+
+            String url = predictionServiceUrl + "/api/model/incremental";
+            Map<?, ?> result = restTemplate.postForObject(url, body, Map.class);
+            logger.info("增量训练推送完成，推送 {} 条记录，结果: {}", records.size(),
+                    result != null ? result.get("status") : "null");
+        } catch (org.springframework.web.client.ResourceAccessException e) {
+            logger.warn("预测服务不可达，增量训练跳过（不影响导入）: {}", e.getMessage());
+        } catch (Exception e) {
+            logger.warn("增量训练推送失败（不影响导入）: {}", e.getMessage());
+        }
     }
 }
 
